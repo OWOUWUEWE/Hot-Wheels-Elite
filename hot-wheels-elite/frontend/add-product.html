@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Hot Wheels Elite - Добавить объявление</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="auth.js" defer></script>
+</head>
+<body>
+    <!-- Хедер -->
+    <div class="header">
+        <div class="header-left">
+            <button class="back-btn" id="back-btn">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M15 18L9 12L15 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+            </button>
+            <div class="logo">Новое объявление</div>
+        </div>
+    </div>
+
+    <!-- Форма добавления товара -->
+    <div class="main-container">
+        <div class="add-product-form">
+            <div class="form-section">
+                <h3>Основная информация</h3>
+                
+                <!-- Превью изображений -->
+                <div class="image-upload-area" id="image-upload">
+                    <div class="upload-placeholder" id="upload-placeholder">
+                        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M12 5V19" stroke="#666" stroke-width="2" stroke-linecap="round"/>
+                            <path d="M5 12H19" stroke="#666" stroke-width="2" stroke-linecap="round"/>
+                        </svg>
+                        <p>Добавить фото (до 5)</p>
+                        <input type="file" id="image-input" accept="image/*" multiple style="display: none;">
+                    </div>
+                    <div class="image-preview-container" id="image-preview"></div>
+                </div>
+
+                <!-- Поля формы -->
+                <div class="form-group">
+                    <label for="title">Название модели *</label>
+                    <input type="text" id="title" placeholder="Например: 'Hot Wheels Treasure Hunt 2023'" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="description">Описание</label>
+                    <textarea id="description" rows="4" placeholder="Опишите состояние, особенности, детали..."></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label for="category">Категория *</label>
+                    <select id="category" required>
+                        <option value="">Выберите категорию</option>
+                        <option value="rare">Редкие</option>
+                        <option value="vintage">Винтажные</option>
+                        <option value="new">Новые</option>
+                        <option value="custom">Кастомные</option>
+                        <option value="sets">Наборы</option>
+                        <option value="other">Другое</option>
+                    </select>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="price">Цена ($) *</label>
+                        <input type="number" id="price" placeholder="0" min="0" step="0.01" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="condition">Состояние</label>
+                        <select id="condition">
+                            <option value="new">Новый в упаковке</option>
+                            <option value="excellent">Отличное</option>
+                            <option value="good">Хорошее</option>
+                            <option value="used">Б/у</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="year">Год выпуска</label>
+                    <input type="number" id="year" placeholder="2023" min="1968" max="2025">
+                </div>
+            </div>
+
+            <div class="form-section">
+                <h3>Контакты и доставка</h3>
+                <div class="form-group">
+                    <label for="location">Город</label>
+                    <input type="text" id="location" placeholder="Москва">
+                </div>
+                
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="shipping-available">
+                        <span>Возможна доставка</span>
+                    </label>
+                </div>
+            </div>
+
+            <!-- Кнопки -->
+            <div class="form-actions">
+                <button class="btn btn-secondary" id="cancel-btn">Отмена</button>
+                <button class="btn btn-primary" id="submit-btn">Опубликовать</button>
+            </div>
+
+            <div class="form-hint">
+                <p>* Обязательные поля для заполнения</p>
+                <p>После публикации объявление появится в общей ленте</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            window.Telegram.WebApp.ready();
+            window.Telegram.WebApp.expand();
+            
+            // Навигация назад
+            document.getElementById('back-btn').addEventListener('click', () => {
+                window.history.back();
+            });
+            
+            document.getElementById('cancel-btn').addEventListener('click', () => {
+                window.history.back();
+            });
+            
+            // Загрузка изображений
+            const imageInput = document.getElementById('image-input');
+            const uploadPlaceholder = document.getElementById('upload-placeholder');
+            const imagePreview = document.getElementById('image-preview');
+            
+            uploadPlaceholder.addEventListener('click', () => {
+                imageInput.click();
+            });
+            
+            imageInput.addEventListener('change', (e) => {
+                const files = Array.from(e.target.files).slice(0, 5);
+                imagePreview.innerHTML = '';
+                
+                files.forEach(file => {
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        const imgContainer = document.createElement('div');
+                        imgContainer.className = 'image-preview-item';
+                        imgContainer.innerHTML = `
+                            <img src="${e.target.result}" alt="Preview">
+                            <button class="remove-image">×</button>
+                        `;
+                        imagePreview.appendChild(imgContainer);
+                        
+                        // Удаление изображения
+                        imgContainer.querySelector('.remove-image').addEventListener('click', () => {
+                            imgContainer.remove();
+                            if (imagePreview.children.length === 0) {
+                                uploadPlaceholder.style.display = 'flex';
+                            }
+                        });
+                    };
+                    reader.readAsDataURL(file);
+                });
+                
+                if (files.length > 0) {
+                    uploadPlaceholder.style.display = 'none';
+                }
+            });
+            
+            // Отправка формы
+            document.getElementById('submit-btn').addEventListener('click', async () => {
+                const title = document.getElementById('title').value;
+                const price = document.getElementById('price').value;
+                const category = document.getElementById('category').value;
+                
+                if (!title || !price || !category) {
+                    alert('Заполните обязательные поля!');
+                    return;
+                }
+                
+                // Здесь будет логика отправки на сервер
+                // Пока просто редирект на главную
+                window.location.href = 'index.html';
+            });
+        });
+    </script>
+</body>
+</html>
