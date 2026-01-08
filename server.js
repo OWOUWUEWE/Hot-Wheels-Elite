@@ -1,185 +1,111 @@
 const express = require('express');
-const cors = require('cors');
-const mongoose = require('mongoose');
-const jwt = require('jsonwebtoken');
-require('dotenv').config();
+const bodyParser = require('body-parser');
+const fs = require('fs').promises;
+const path = require('path');
 
 const app = express();
+const PORT = process.env.PORT || 3000;
 
 // Middleware
-app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: true }));
+app.use(express.static(__dirname));
 
-// Подключение к MongoDB
-mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/hotwheelselite', {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-});
+// Файл для хранения пользователей
+const USERS_FILE = path.join(__dirname, 'users.json');
 
-// Модели
-const User = require('./models/User');
-const Product = require('./models/Product');
-const Favorite = require('./models/Favorite');
-const Review = require('./models/Review');
-
-// Валидация данных Telegram WebApp
-const validateTelegramData = (initData) => {
-    // Здесь должна быть реализована валидация подписи Telegram
-    // Для MVP пропускаем валидацию
-    return true;
-};
-
-// Маршруты
-app.post('/api/auth/telegram', async (req, res) => {
+// Загрузка пользователей
+async function loadUsers() {
     try {
-        const { initData } = req.body;
-        
-        if (!validateTelegramData(initData)) {
-            return res.status(401).json({ error: 'Invalid Telegram data' });
-        }
-
-        // Парсинг данных Telegram
-        const params = new URLSearchParams(initData);
-        const userData = JSON.parse(params.get('user'));
-        
-        // Поиск или создание пользователя
-        let user = await User.findOne({ telegramId: userData.id });
-        
-        if (!user) {
-            user = new User({
-                telegramId: userData.id,
-                firstName: userData.first_name,
-                lastName: userData.last_name || '',
-                username: userData.username || '',
-                photoUrl: userData.photo_url || '',
-                rating: 5.0,
-                reviewsCount: 0,
-                joinedAt: new Date()
-            });
-            await user.save();
-        }
-
-        // Генерация JWT токена
-        const token = jwt.sign(
-            { userId: user._id, telegramId: user.telegramId },
-            process.env.JWT_SECRET || 'hotwheels-secret-key',
-            { expiresIn: '30d' }
-        );
-
-        res.json({
-            token,
-            user: {
-                id: user._id,
-                telegramId: user.telegramId,
-                firstName: user.firstName,
-                lastName: user.lastName,
-                username: user.username,
-                photoUrl: user.photoUrl,
-                rating: user.rating,
-                reviewsCount: user.reviewsCount
-            }
-        });
+        const data = await fs.readFile(USERS_FILE, 'utf8');
+        return JSON.parse(data);
     } catch (error) {
-        console.error('Auth error:', error);
-        res.status(500).json({ error: 'Authentication failed' });
+        return {};
     }
-});
+}
 
-// Маршруты для товаров
-app.get('/api/products', async (req, res) => {
+// Сохранение пользователей
+async function saveUsers(users) {
+    await fs.writeFile(USERS_FILE, JSON.stringify(users, null, 2), 'utf8');
+}
+
+// API для регистрации
+app.post('/register', async (req, res) => {
     try {
-        const { category, page = 1, limit = 20 } = req.query;
-        const query = category && category !== 'all' ? { category, active: true } : { active: true };
+        const userData = req.body;
         
-        const products = await Product.find(query)
-            .populate('seller', 'firstName lastName username rating reviewsCount')
-            .sort({ createdAt: -1 })
-            .skip((page - 1) * limit)
-            .limit(parseInt(limit));
+        if (!userData.telegram_id) {
+            return res.status(400).json({ error: 'Telegram ID required' });
+        }
+        
+        const users = await loadUsers();
+        const userId = userData.telegram_id.toString();
+        
+        // Проверяем, есть ли пользователь
+        if (!users[userId]) {
+            users[userId] = {
+                ...userData,
+                registration_date: new Date().toISOString(),
+                is_active: true,
+                last_login: new Date().toISOString()
+            };
             
-        res.json(products);
-    } catch (error) {
-        console.error('Error fetching products:', error);
-        res.status(500).json({ error: 'Failed to fetch products' });
-    }
-});
-
-app.post('/api/products', async (req, res) => {
-    try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) {
-            return res.status(401).json({ error: 'No token provided' });
-        }
-
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'hotwheels-secret-key');
-        const user = await User.findById(decoded.userId);
-        
-        if (!user) {
-            return res.status(404).json({ error: 'User not found' });
-        }
-
-        const product = new Product({
-            ...req.body,
-            seller: user._id,
-            active: true,
-            views: 0,
-            createdAt: new Date()
-        });
-
-        await product.save();
-        res.status(201).json(product);
-    } catch (error) {
-        console.error('Error creating product:', error);
-        res.status(500).json({ error: 'Failed to create product' });
-    }
-});
-
-// Маршруты для избранного
-app.post('/api/favorites/:productId', async (req, res) => {
-    try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) {
-            return res.status(401).json({ error: 'No token provided' });
-        }
-
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'hotwheels-secret-key');
-        const user = await User.findById(decoded.userId);
-        
-        if (!user) {
-            return res.status(404).json({ error: 'User not found' });
-        }
-
-        const { productId } = req.params;
-        
-        // Проверяем, есть ли уже в избранном
-        const existingFavorite = await Favorite.findOne({
-            user: user._id,
-            product: productId
-        });
-
-        if (existingFavorite) {
-            // Удаляем из избранного
-            await existingFavorite.deleteOne();
-            res.json({ favorited: false });
-        } else {
-            // Добавляем в избранное
-            const favorite = new Favorite({
-                user: user._id,
-                product: productId,
-                createdAt: new Date()
+            await saveUsers(users);
+            console.log(`Новый пользователь: ${userData.first_name} (ID: ${userId})`);
+            
+            return res.json({
+                success: true,
+                message: 'User registered successfully',
+                user: users[userId]
             });
-            await favorite.save();
-            res.json({ favorited: true });
+        } else {
+            // Обновляем время последнего входа
+            users[userId].last_login = new Date().toISOString();
+            await saveUsers(users);
+            
+            return res.json({
+                success: true,
+                message: 'User already exists',
+                user: users[userId]
+            });
         }
     } catch (error) {
-        console.error('Error toggling favorite:', error);
-        res.status(500).json({ error: 'Failed to toggle favorite' });
+        console.error('Registration error:', error);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
-// Запуск сервера
-const PORT = process.env.PORT || 3000;
+// API для получения пользователя
+app.get('/user/:telegram_id', async (req, res) => {
+    try {
+        const users = await loadUsers();
+        const user = users[req.params.telegram_id];
+        
+        if (user) {
+            res.json({ success: true, user });
+        } else {
+            res.status(404).json({ success: false, error: 'User not found' });
+        }
+    } catch (error) {
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// Обслуживание HTML файлов
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'index.html'));
+});
+
+app.get('/style.css', (req, res) => {
+    res.sendFile(path.join(__dirname, 'style.css'));
+});
+
+app.get('/script.js', (req, res) => {
+    res.sendFile(path.join(__dirname, 'script.js'));
+});
+
+// Старт сервера
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
+    console.log(`Open http://localhost:${PORT} in your browser`);
 });
